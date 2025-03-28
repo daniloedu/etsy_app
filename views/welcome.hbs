@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        .listing {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .listing img {
+            max-width: 200px;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Welcome to Your Etsy Shop!</h1>
+    <p>Your user ID is: {{user_id}}</p>
+
+    <h2>Your Active Listings</h2>
+    {{#if listings.length}}
+        {{#each listings}}
+        <div class="listing">
+            <h3>{{title}}</h3>
+            {{#if images.[0]}}
+            <img src="{{images.[0].url_570xN}}" alt="{{title}}">
+            {{/if}}
+            <p>Price: {{price.amount}} {{price.currency_code}}</p>
+            <p>Quantity: {{quantity}}</p>
+            <a href="https://www.etsy.com/listing/{{listing_id}}" target="_blank">View on Etsy</a>
+        </div>
+        {{/each}}
+    {{else}}
+        <p>No active listings found.</p>
+    {{/if}}
+</body>
+</html>

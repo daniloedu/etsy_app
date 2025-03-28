@@ -1,0 +1,21 @@
+{
+  "name": "etsyapp",
+  "version": "0.0.1",
+  "description": "A simple Node app that makes requests to Etsy’s Open API.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "hbs": "^4.2.0",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=12 <15"
+  },
+  "license": "MIT",
+  "keywords": [],
+  "author": ""
+}

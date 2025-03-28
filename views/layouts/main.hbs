@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Etsy Manager</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        .sidebar {
+            width: 12vw;
+            min-width: 180px;
+        }
+        .sidebar-item {
+            @apply flex items-center px-6 py-4 text-gray-700 hover:bg-indigo-50 hover:text-indigo-600;
+            margin: 2px 0;
+        }
+        .sidebar-item.active {
+            @apply bg-indigo-50 text-indigo-600 font-medium;
+        }
+        .sidebar-item i {
+            font-size: 1.5rem;
+            width: 2rem;
+            text-align: center;
+            margin-right: 1rem;
+        }
+        .sidebar-item span {
+            font-size: 1rem;
+        }
+        .stat-card {
+            @apply bg-white p-6 rounded-lg shadow-sm;
+        }
+        .trend-up {
+            @apply text-green-500 text-sm;
+        }
+        .trend-down {
+            @apply text-red-500 text-sm;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="flex h-screen">
+<!-- Replace your <div class="sidebar">…</div> with: -->
+    <div class="bg-white shadow h-full flex flex-col w-64">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h1 class="text-2xl font-bold text-indigo-600">Etsy Manager</h1>
+        </div>
+        <nav class="flex-1 px-2 py-4 space-y-1">
+            <a href="/statistics"
+            class="flex items-center px-4 py-3 rounded-lg text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 {{#if isStatistics}}bg-indigo-50 text-indigo-600 font-medium{{/if}}">
+            <i class="fas fa-chart-bar text-xl mr-3"></i>
+            <span class="text-lg">Statistics</span>
+            </a>
+            <a href="/orders"
+            class="flex items-center px-4 py-3 rounded-lg text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 {{#if isOrders}}bg-indigo-50 text-indigo-600 font-medium{{/if}}">
+            <i class="fas fa-shopping-cart text-xl mr-3"></i>
+            <span class="text-lg">Orders</span>
+            </a>
+            <a href="/listings"
+            class="flex items-center px-4 py-3 rounded-lg text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 {{#if isListings}}bg-indigo-50 text-indigo-600 font-medium{{/if}}">
+            <i class="fas fa-list text-xl mr-3"></i>
+            <span class="text-lg">Listings</span>
+            </a>
+        </nav>
+    </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-8">
+                {{{body}}}
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript files -->
+    {{#if isListings}}
+    <script src="/js/listings.js"></script>
+    {{/if}}
+    {{#if isOrders}}
+    <script src="/js/orders.js"></script>
+    {{/if}}
+</body>
+</html> 

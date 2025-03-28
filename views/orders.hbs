@@ -1,0 +1,94 @@
+<div class="flex justify-between items-center mb-8">
+    <div>
+        <h1 class="text-2xl font-bold">Orders</h1>
+        {{#if shop_name}}
+        <p class="text-gray-600 mt-1">{{shop_name}}</p>
+        {{/if}}
+    </div>
+    <div class="flex space-x-4">
+        <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center">
+                <span class="material-icons text-gray-400">search</span>
+            </span>
+            <input type="text" placeholder="Search orders..." class="pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <button class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center">
+            <i class="fas fa-download mr-2"></i>
+            Export
+        </button>
+    </div>
+</div>
+
+{{#if error}}
+<div class="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
+    <div class="flex">
+        <div class="flex-shrink-0">
+            <i class="fas fa-exclamation-circle text-red-400"></i>
+        </div>
+        <div class="ml-3">
+            <p class="text-sm text-red-700">{{error}}</p>
+        </div>
+    </div>
+</div>
+{{/if}}
+
+<div class="bg-white rounded-lg shadow">
+    <div class="p-4 border-b">
+        <div class="flex space-x-4">
+            <button class="px-4 py-2 bg-indigo-100 text-indigo-600 rounded-lg">All Orders</button>
+            <button class="px-4 py-2 hover:bg-gray-100 rounded-lg">Pending</button>
+            <button class="px-4 py-2 hover:bg-gray-100 rounded-lg">Processing</button>
+            <button class="px-4 py-2 hover:bg-gray-100 rounded-lg">Shipped</button>
+        </div>
+    </div>
+
+    {{#if orders.length}}
+    <table class="min-w-full">
+        <thead>
+            <tr class="border-b">
+                <th class="px-6 py-3 text-left">
+                    <input type="checkbox" class="rounded">
+                </th>
+                <th class="px-6 py-3 text-left text-sm font-medium text-gray-500">ORDER ID</th>
+                <th class="px-6 py-3 text-left text-sm font-medium text-gray-500">CUSTOMER</th>
+                <th class="px-6 py-3 text-left text-sm font-medium text-gray-500">ITEMS</th>
+                <th class="px-6 py-3 text-left text-sm font-medium text-gray-500">TOTAL</th>
+                <th class="px-6 py-3 text-left text-sm font-medium text-gray-500">STATUS</th>
+                <th class="px-6 py-3 text-left text-sm font-medium text-gray-500">DATE</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#each orders}}
+            <tr class="border-b hover:bg-gray-50">
+                <td class="px-6 py-4">
+                    <input type="checkbox" class="rounded">
+                </td>
+                <td class="px-6 py-4">#{{id}}</td>
+                <td class="px-6 py-4">{{customer}}</td>
+                <td class="px-6 py-4">{{items}} items</td>
+                <td class="px-6 py-4">${{total}}</td>
+                <td class="px-6 py-4">
+                    <span class="px-2 py-1 text-sm rounded-full {{statusClass}}">{{status}}</span>
+                </td>
+                <td class="px-6 py-4">{{date}}</td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+    {{else}}
+    <div class="p-8 text-center text-gray-500">
+        <i class="fas fa-inbox text-4xl mb-4"></i>
+        <p>No orders found</p>
+    </div>
+    {{/if}}
+</div>
+
+<div class="mt-4 flex justify-between items-center">
+    <div class="text-sm text-gray-500">
+        Showing {{orders.length}} orders
+    </div>
+    <div class="flex space-x-2">
+        <button class="px-4 py-2 border rounded-lg hover:bg-gray-50">Previous</button>
+        <button class="px-4 py-2 border rounded-lg hover:bg-gray-50">Next</button>
+    </div>
+</div> 
