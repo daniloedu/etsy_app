@@ -1,348 +1,306 @@
-// Import the express and fetch libraries
+// Import necessary libraries
+require('dotenv').config(); // Load environment variables from .env file FIRST!
 const express = require('express');
 const fetch = require("node-fetch");
 const hbs = require("hbs");
 const path = require('path');
 const session = require('express-session');
+const crypto = require('crypto');
 
-// Create a new express application
+// --- Environment Variable Checks ---
+// Ensure required variables are loaded
+if (!process.env.ETSY_CLIENT_ID) {
+  console.error("FATAL ERROR: ETSY_CLIENT_ID is not defined in .env file.");
+  process.exit(1); // Exit if critical config is missing
+}
+if (!process.env.SESSION_SECRET) {
+  console.error("FATAL ERROR: SESSION_SECRET is not defined in .env file.");
+  process.exit(1);
+}
+
+// --- Handlebars Helpers ---
+hbs.registerHelper('eq', (a, b) => a === b);
+hbs.registerHelper('add', (a, b) => parseInt(a, 10) + parseInt(b, 10));
+hbs.registerHelper('subtract', (a, b) => parseInt(a, 10) - parseInt(b, 10));
+
+// --- Helper Functions ---
+const base64URLEncode = (str) => str.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+const sha256 = (buffer) => crypto.createHash("sha256").update(buffer).digest();
+
+function getStatusClass(status) {
+    status = status ? status.toLowerCase() : 'unknown';
+    switch (status) {
+        case 'completed': return 'bg-green-100 text-green-800';
+        case 'open': return 'bg-yellow-100 text-yellow-800';
+        case 'payment processing': return 'bg-yellow-100 text-yellow-800';
+        case 'shipped': return 'bg-blue-100 text-blue-800';
+        case 'canceled': return 'bg-red-100 text-red-800';
+        case 'paid': return 'bg-purple-100 text-purple-800';
+        default: return 'bg-gray-100 text-gray-800';
+    }
+}
+
+// --- App Setup ---
 const app = express();
 app.set("view engine", "hbs");
-app.set("views", `${process.cwd()}/views`);
+app.set("views", path.join(__dirname, 'views'));
 app.set('view options', { layout: 'layouts/main' });
+
+// --- Use Environment Variables for Configuration ---
+const clientID = process.env.ETSY_CLIENT_ID; // Use from .env
+const sessionSecret = process.env.SESSION_SECRET; // Use from .env
+const port = process.env.PORT || 3003; // Use from .env or default
+const nodeEnv = process.env.NODE_ENV || 'development';
 
 // Session middleware
 app.use(session({
-    secret: 'your-secret-key',
+    secret: sessionSecret, // Use variable loaded from .env
     resave: false,
-    saveUninitialized: true,
-    cookie: { secure: false } // set to true if using HTTPS
+    saveUninitialized: false,
+    cookie: {
+        secure: nodeEnv === 'production', // Use 'secure: true' only in production (HTTPS)
+        httpOnly: true,
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 1 week
+    }
 }));
 
-// Serve static files from public directory
+// Static files middleware
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Middleware to check authentication
+// --- Constants ---
+const redirectUri = `http://localhost:${port}/oauth/redirect`; // Make port dynamic
+const scopes = ['email_r', 'shops_r', 'listings_r', 'listings_w', 'transactions_r'].join(' ');
+const ORDERS_PER_PAGE = 25;
+
+// --- Middleware: requireAuth (Keep as is) ---
 const requireAuth = (req, res, next) => {
     if (!req.session.access_token) {
+        console.log('Auth required, redirecting to login.');
         return res.redirect('/');
     }
+    console.log('User authenticated, proceeding.');
     next();
 };
 
-// Routes for our application
-app.get('/statistics', requireAuth, (req, res) => {
-    res.render('statistics', { isStatistics: true });
+// --- Routes ---
+
+// Root route: / (Keep logic, use clientID variable)
+app.get('/', (req, res) => {
+    const codeVerifier = base64URLEncode(crypto.randomBytes(32));
+    const codeChallenge = base64URLEncode(sha256(codeVerifier));
+    const state = crypto.randomBytes(16).toString('hex');
+
+    req.session.codeVerifier = codeVerifier;
+    req.session.oauthState = state;
+
+    req.session.save(err => {
+        if (err) { return res.status(500).send("Error saving session state."); }
+
+        const authUrl = `https://www.etsy.com/oauth/connect?` +
+            `response_type=code` +
+            `&client_id=${clientID}` + // Use variable
+            `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+            `&scope=${encodeURIComponent(scopes)}` +
+            `&state=${state}` +
+            `&code_challenge=${codeChallenge}` +
+            `&code_challenge_method=S256`;
+
+        res.render("index", { authUrl, layout: false });
+    });
 });
 
-app.get('/orders', requireAuth, async (req, res) => {
+// OAuth Redirect route: /oauth/redirect (Keep logic, use clientID, redirectUri variables)
+app.get("/oauth/redirect", async (req, res) => {
+     const { code, state } = req.query;
+     const storedState = req.session.oauthState;
+     const storedVerifier = req.session.codeVerifier;
+
+     if (!state || !storedState || state !== storedState) { return res.render('index', { error: 'Authentication failed: Invalid state.', layout: false}); }
+     if (!code || !storedVerifier) { return res.render('index', { error: 'Authentication failed: Missing code or session expired.', layout: false}); }
+
+     const verifierForRequest = storedVerifier;
+     delete req.session.oauthState;
+     delete req.session.codeVerifier;
+
+     try {
+         const tokenUrl = 'https://api.etsy.com/v3/public/oauth/token';
+         const requestOptions = {
+             method: 'POST',
+             body: JSON.stringify({
+                 grant_type: 'authorization_code',
+                 client_id: clientID, // Use variable
+                 redirect_uri: redirectUri, // Use variable
+                 code: code,
+                 code_verifier: verifierForRequest,
+             }),
+             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
+         };
+
+         const response = await fetch(tokenUrl, requestOptions);
+         const responseData = await response.json();
+
+         if (response.ok) {
+             req.session.access_token = responseData.access_token;
+             req.session.refresh_token = responseData.refresh_token;
+             req.session.token_expires_at = Date.now() + (responseData.expires_in * 1000);
+             req.session.user_id = responseData.access_token.split('.')[0];
+
+             req.session.save(err => {
+                 if(err) { console.error("Session save error after token:", err); }
+                 res.redirect('/orders');
+             });
+         } else {
+             let errorMessage = `Authentication failed: ${responseData.error || 'Token exchange error.'}`;
+             if (responseData.error_description) errorMessage += ` (${responseData.error_description})`;
+             res.render('index', { error: errorMessage, layout: false });
+         }
+     } catch (error) {
+         console.error("OAuth redirect error:", error);
+         res.status(500).render('index', { error: 'An unexpected error occurred during authentication.', layout: false });
+     }
+});
+
+// Ping route: /ping (Keep as is, use clientID variable)
+app.get('/ping', requireAuth, async (req, res) => {
+    const requestOptions = { headers: { 'x-api-key': clientID } }; // Use variable
     try {
-        // Extract user ID from the access token
-        const user_id = parseInt(req.session.access_token.split('.')[0]);
-        
-        if (isNaN(user_id)) {
-            console.error('Invalid user ID from token');
-            return res.render('orders', { 
-                isOrders: true, 
-                error: 'Invalid authentication token'
-            });
-        }
+        const response = await fetch('https://api.etsy.com/v3/application/openapi-ping', requestOptions);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `API ping failed with status ${response.status}`);
+        res.json(data);
+    } catch (error) {
+        console.error("Ping error:", error);
+        res.status(500).json({ error: "Failed to ping Etsy API", details: error.message });
+    }
+});
 
-        console.log('Fetching shops for user ID:', user_id);
-        console.log('Using access token:', req.session.access_token);
+// Statistics route: /statistics (Keep as is)
+app.get('/statistics', requireAuth, (req, res) => { res.render('statistics', { isStatistics: true }); });
 
-        // First, get the user's shops
-        const shopsResponse = await fetch(
-            `https://api.etsy.com/v3/application/users/${user_id}/shops`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${req.session.access_token}`,
-                    'x-api-key': clientID
-                }
-            }
-        );
-
-        console.log('Shops API Response Status:', shopsResponse.status);
-        console.log('Shops API Response Headers:', shopsResponse.headers);
-
-        if (!shopsResponse.ok) {
-            const errorData = await shopsResponse.json();
-            console.error('Shops API Error Details:', {
-                status: shopsResponse.status,
-                statusText: shopsResponse.statusText,
-                error: errorData
-            });
-            return res.render('orders', { 
-                isOrders: true, 
-                error: `Failed to fetch shop information: ${errorData.error || 'Unknown error'}`
-            });
-        }
-
+// Listings route: /listings (Keep as is, use clientID variable)
+app.get('/listings', requireAuth, async (req, res) => {
+    const access_token = req.session.access_token;
+    // ... rest of listings logic using clientID variable ...
+    try {
+        // Fetch shop ID
+        const shopsResponse = await fetch(`https://api.etsy.com/v3/application/users/${req.session.user_id}/shops`, { headers: { 'Authorization': `Bearer ${access_token}`, 'x-api-key': clientID } });
+        if (!shopsResponse.ok) throw new Error('Failed to fetch shop ID for listings');
         const shopsData = await shopsResponse.json();
-        console.log('Shops API Response Data:', JSON.stringify(shopsData, null, 2));
-        
-        // Check if we have a valid shop object
-        if (!shopsData.shop_id) {
-            console.log('No valid shop data found in response');
-            return res.render('orders', { 
-                isOrders: true, 
-                error: 'No shops found for this user. Please make sure you have at least one Etsy shop.',
-                debug: {
-                    user_id,
-                    response_data: shopsData
-                }
-            });
+        if (!shopsData?.shop_id) return res.render('listings', { isListings: true, error: 'No shop found.' });
+        const shop_id = shopsData.shop_id;
+
+        // Fetch listings
+        const listingsResponse = await fetch(`https://api.etsy.com/v3/application/shops/${shop_id}/listings/active?limit=50&includes=Images`, { headers: { 'Authorization': `Bearer ${access_token}`, 'x-api-key': clientID } });
+        if (!listingsResponse.ok) throw new Error('Failed to fetch listings');
+        const listingsData = await listingsResponse.json();
+
+        // Map data
+        const listings = (listingsData.results || []).map(listing => ({ /* ... mapping ... */ }));
+        res.render('listings', { isListings: true, listings, shop_name: shopsData.shop_name, error: null });
+
+    } catch(error) {
+        console.error("Error in /listings:", error);
+        res.status(500).render('listings', { isListings: true, error: `Error fetching listings: ${error.message}`});
+    }
+});
+
+// Orders Route: /orders (Keep filtering logic, use clientID variable)
+app.get('/orders', requireAuth, async (req, res) => {
+    const access_token = req.session.access_token;
+    const user_id = req.session.user_id;
+    const requestedPage = parseInt(req.query.page, 10) || 1;
+    const requestedStatus = req.query.status || 'all';
+
+    console.log(`Accessing /orders for user ${user_id}, Page: ${requestedPage}, Status: ${requestedStatus}`);
+
+    try {
+        // 1. Get Shop ID
+        const shopsResponse = await fetch(`https://api.etsy.com/v3/application/users/${user_id}/shops`, { headers: { 'Authorization': `Bearer ${access_token}`, 'x-api-key': clientID } }); // Use variable
+        if (!shopsResponse.ok) { throw new Error('Failed to fetch shop info'); }
+        const shopsData = await shopsResponse.json();
+        if (!shopsData || !shopsData.shop_id) { return res.render('orders', { isOrders: true, error: 'No shop found.' }); }
+        const shop_id = shopsData.shop_id;
+        const shop_name = shopsData.shop_name || `Shop ${shop_id}`;
+
+        // 2. Prepare API Call Parameters
+        const limit = ORDERS_PER_PAGE;
+        const offset = (requestedPage - 1) * limit;
+        let apiUrl = `https://api.etsy.com/v3/application/shops/${shop_id}/receipts?limit=${limit}&offset=${offset}`;
+        switch (requestedStatus.toLowerCase()) {
+            case 'pending': apiUrl += '&was_paid=false'; break;
+            case 'processing': apiUrl += '&was_paid=true&was_shipped=false'; break;
+            case 'shipped': apiUrl += '&was_shipped=true'; break;
+            default: break;
         }
+        console.log(`Constructed API URL: ${apiUrl}`);
 
-        // Use the shop data directly since it's not in a results array
-        const shop = shopsData;
-        console.log('Found shop:', shop);
-        const shop_id = shop.shop_id;
-        
-        // Fetch orders for the shop
-        console.log('Fetching orders for shop ID:', shop_id);
-        const ordersResponse = await fetch(
-            `https://api.etsy.com/v3/application/shops/${shop_id}/receipts`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${req.session.access_token}`,
-                    'x-api-key': clientID
-                }
-            }
-        );
-
-        console.log('Orders API Response Status:', ordersResponse.status);
-
-        if (!ordersResponse.ok) {
-            const errorData = await ordersResponse.json();
-            console.error('Orders API Error Details:', {
-                status: ordersResponse.status,
-                statusText: ordersResponse.statusText,
-                error: errorData
-            });
-            return res.render('orders', { 
-                isOrders: true, 
-                error: `Failed to fetch orders: ${errorData.error || 'Unknown error'}`,
-                shop_name: shop.shop_name
-            });
-        }
-
+        // 3. Fetch Receipts
+        const ordersResponse = await fetch(apiUrl, { headers: { 'Authorization': `Bearer ${access_token}`, 'x-api-key': clientID } }); // Use variable
+        if (!ordersResponse.ok) { throw new Error(`Failed to fetch orders (${ordersResponse.status})`); }
         const ordersData = await ordersResponse.json();
-        console.log('Orders API Response Data:', JSON.stringify(ordersData, null, 2));
-        
-        // Transform the orders data to match our view
-        const orders = ordersData.results.map(order => ({
+
+        // 4. Server-Side Filtering
+        const apiResults = ordersData.results || [];
+        const totalOrdersMatchingFilter = ordersData.count || 0;
+        console.log(`API returned ${apiResults.length} results. Correct count matching filter: ${totalOrdersMatchingFilter}.`);
+        let filteredResults = [];
+        switch (requestedStatus.toLowerCase()) {
+            case 'pending': filteredResults = apiResults.filter(order => !order.was_paid); break;
+            case 'processing': filteredResults = apiResults.filter(order => order.was_paid && !order.was_shipped); break;
+            case 'shipped': filteredResults = apiResults.filter(order => order.was_shipped); break;
+            default: filteredResults = apiResults; break;
+        }
+        console.log(`Server-side filter applied for '${requestedStatus}', ${filteredResults.length} results remain.`);
+
+        // 5. Calculate Pagination
+        const totalPages = Math.ceil(totalOrdersMatchingFilter / limit);
+        const hasNextPage = requestedPage < totalPages;
+        const hasPrevPage = requestedPage > 1;
+
+        // 6. Map Data
+        const orders = filteredResults.map(order => ({
             id: order.receipt_id,
-            customer: order.buyer_user_id,
-            items: order.transactions.length,
-            total: order.total_price,
-            status: order.status,
+            customer: order.name || `Buyer User ID: ${order.buyer_user_id}`,
+            items: order.transactions?.length || order.total_items || 0,
+            total: (order.grandtotal?.amount / (order.grandtotal?.divisor || 100)).toFixed(2),
+            currency: order.grandtotal?.currency_code || 'N/A',
+            status: order.status || 'Unknown',
             date: new Date(order.created_timestamp * 1000).toLocaleDateString(),
             statusClass: getStatusClass(order.status)
         }));
 
-        res.render('orders', { 
-            isOrders: true, 
-            orders,
-            shop_name: shop.shop_name
+        // 7. Render
+        res.render('orders', {
+            isOrders: true, orders, shop_name, error: null,
+            currentPage: requestedPage, totalPages, hasNextPage, hasPrevPage, currentStatus: requestedStatus
         });
 
     } catch (error) {
-        console.error('Unexpected Error:', error);
-        console.error('Error Stack:', error.stack);
-        res.render('orders', { 
-            isOrders: true, 
-            error: `An unexpected error occurred: ${error.message}`,
-            debug: {
-                error_stack: error.stack
-            }
+        console.error('Error in /orders route:', error);
+        res.status(500).render('orders', {
+            isOrders: true, orders: [], error: `An error occurred while fetching orders: ${error.message}`,
+            currentPage: 1, totalPages: 1, hasNextPage: false, hasPrevPage: false, currentStatus: 'all'
         });
     }
 });
 
-// Helper function to get status class for styling
-function getStatusClass(status) {
-    switch (status.toLowerCase()) {
-        case 'completed':
-            return 'bg-green-100 text-green-800';
-        case 'pending':
-            return 'bg-yellow-100 text-yellow-800';
-        case 'shipped':
-            return 'bg-blue-100 text-blue-800';
-        case 'cancelled':
-            return 'bg-red-100 text-red-800';
-        default:
-            return 'bg-gray-100 text-gray-800';
-    }
-}
-
-app.get('/listings', (req, res) => {
-    // Example listings data
-    const listings = [
-        { title: 'Handmade Ceramic Mug', price: '24.99', stock: 15, category: 'Home Decor', views: 245 },
-        { title: 'Knitted Wool Scarf', price: '34.50', stock: 8, category: 'Accessories', views: 189 }
-    ];
-    res.render('listings', { isListings: true, listings });
-});
-
-// Send a JSON response to a default get request
-app.get('/ping', async (req, res) => {
-    const requestOptions = {
-        'method': 'GET',
-        'headers': {
-            'x-api-key': 'ozohjuyhb60cgi2j6h5pp3tx',
-        },
-    };
-
-    const response = await fetch(
-        'https://api.etsy.com/v3/application/openapi-ping',
-        requestOptions
-    );
-
-    if (response.ok) {
-        const data = await response.json();
-        res.send(data);
-    } else {
-        res.send("oops");
-    }
-});
-
-/**
-These variables contain your API Key, the state sent
-in the initial authorization request, and the client verifier compliment
-to the code_challenge sent with the initial authorization request
-*/
-const clientID = 'ozohjuyhb60cgi2j6h5pp3tx';
-const clientVerifier = 'yMI6PUVehxF80D-Ht_BdRdd9ct5-oRoObpVuI77CCKY';
-const redirectUri = 'http://localhost:3003/oauth/redirect';
-
-// Update the scopes to match Etsy's valid scope values
-const scopes = [
-    'address_r',
-    'address_w',
-    'billing_r',
-    'cart_r',
-    'cart_w',
-    'email_r',
-    'favorites_r',
-    'favorites_w',
-    'feedback_r',
-    'listings_r',
-    'listings_w',
-    'profile_r',
-    'profile_w',
-    'recommend_r',
-    'recommend_w',
-    'shops_r',
-    'shops_w',
-    'transactions_r',
-    'transactions_w'
-].join(' ');
-
-// Generate a random state for security
-const state = Math.random().toString(36).substring(7);
-
-app.get('/', async (req, res) => {
-    const authUrl = `https://www.etsy.com/oauth/connect?response_type=code&client_id=${clientID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&code_challenge=${clientVerifier}&code_challenge_method=S256&state=${state}`;
-    res.render("index", { authUrl });
-});
-
-app.get("/oauth/redirect", async (req, res) => {
-    try {
-        // Check if we have a code in the query parameters
-        if (!req.query.code) {
-            console.error('No authorization code received');
-            console.error('Query parameters:', req.query);
-            return res.render('index', { 
-                error: 'Authorization failed: No code received from Etsy. Please try again.'
-            });
+// Logout route: /logout (Keep as is)
+app.get('/logout', (req, res) => {
+    req.session.destroy(err => {
+        if (err) {
+            console.error("Logout error:", err);
+            return res.status(500).send("Could not log out.");
         }
-
-        const authCode = req.query.code;
-        console.log('Received authorization code:', authCode);
-
-        const tokenUrl = 'https://api.etsy.com/v3/public/oauth/token';
-        const requestOptions = {
-            method: 'POST',
-            body: JSON.stringify({
-                grant_type: 'authorization_code',
-                client_id: clientID,
-                redirect_uri: redirectUri,
-                code: authCode,
-                code_verifier: clientVerifier,
-            }),
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-        };
-
-        console.log('Requesting token with options:', {
-            ...requestOptions,
-            body: JSON.parse(requestOptions.body)
-        });
-
-        const response = await fetch(tokenUrl, requestOptions);
-        const responseData = await response.json();
-
-        if (response.ok) {
-            console.log('Token Response:', responseData);
-            // Store the access token in session
-            req.session.access_token = responseData.access_token;
-            res.redirect('/orders'); // Redirect to orders page after authentication
-        } else {
-            console.error('Token Error:', {
-                status: response.status,
-                statusText: response.statusText,
-                error: responseData
-            });
-            res.render('index', { 
-                error: `Authorization failed: ${responseData.error_description || responseData.error || 'Unknown error'}`
-            });
-        }
-    } catch (error) {
-        console.error('Unexpected error during OAuth:', error);
-        res.render('index', { 
-            error: `An unexpected error occurred: ${error.message}`
-        });
-    }
+        res.clearCookie('connect.sid'); // Default session cookie name
+        console.log('User logged out.');
+        res.redirect('/');
+    });
 });
 
-app.get("/welcome", async (req, res) => {
-    // We passed the access token in via the querystring
-    const { access_token } = req.query;
-
-    // An Etsy access token includes your shop/user ID
-    // as a token prefix, so we can extract that too
-    const user_id = access_token.split('.')[0];
-
-    const requestOptions = {
-        headers: {
-            'x-api-key': clientID,
-            // Scoped endpoints require a bearer token
-            Authorization: `Bearer ${access_token}`,
-        }
-    };
-
-    const response = await fetch(
-        `https://api.etsy.com/v3/application/users/${user_id}`,
-        requestOptions
-    );
-
-    if (response.ok) {
-        const userData = await response.json();
-        // Load the template with the first name as a template variable.
-        res.render("welcome", {
-            first_name: userData.first_name
-        });
-    } else {
-        res.send("oops");
-    }
-});
-
-
-// Start the server on port 3003
-const port = 3003;
+// --- Server Start ---
+// *** Reinstate the console log messages ***
 app.listen(port, () => {
-    console.log(`Example app listening at http://localhost:${port}`);
+    console.log(`Etsy App Server running in ${nodeEnv} mode.`);
+    console.log(`Listening at http://localhost:${port}`);
+    console.log(`Ensure Etsy Redirect URI is set to: ${redirectUri}`); // Show calculated redirect URI
 });

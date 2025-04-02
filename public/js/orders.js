@@ -12,35 +12,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Status filter buttons
-    const statusButtons = document.querySelectorAll('.p-4.border-b button');
-    statusButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            // Remove active class from all buttons
-            statusButtons.forEach(btn => {
-                btn.classList.remove('bg-indigo-100', 'text-indigo-600');
-                btn.classList.add('hover:bg-gray-100');
-            });
-            
-            // Add active class to clicked button
-            this.classList.add('bg-indigo-100', 'text-indigo-600');
-            this.classList.remove('hover:bg-gray-100');
-
-            // Filter orders by status
-            const status = this.textContent.trim();
-            const rows = document.querySelectorAll('tbody tr');
-            
-            rows.forEach(row => {
-                if (status === 'All Orders') {
-                    row.style.display = '';
-                } else {
-                    const rowStatus = row.querySelector('td:nth-child(6)').textContent.trim();
-                    row.style.display = rowStatus === status ? '' : 'none';
-                }
-            });
-        });
-    });
-
     // Search functionality
     const searchInput = document.querySelector('input[placeholder="Search orders..."]');
     searchInput.addEventListener('input', function() {
