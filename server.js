@@ -82,10 +82,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json()); // <<<<<< ADD THIS
 
 // --- Constants ---
-const redirectUri = `http://localhost:${port}/oauth/redirect`; // Make port dynamic
+const listenAddress = '0.0.0.0'; // Listen on all interfaces
+const productionUrl = process.env.RENDER_EXTERNAL_HOSTNAME ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` : `http://localhost:${port}`;
+const redirectUri = `${productionUrl}/oauth/redirect`; // Construct the correct redirect URI
 const scopes = ['email_r', 'shops_r', 'listings_r', 'listings_w', 'transactions_r'].join(' ');
 const ORDERS_PER_PAGE = 25;
 // LISTINGS_PER_PAGE is defined at the top
+
+// Log all this to be sure of the values:
+console.log(`Calculated listenAddress: ${listenAddress}`);
+console.log(`Calculated productionUrl: ${productionUrl}`);
+console.log(`Calculated redirectUri: ${redirectUri}`);
 
 // --- Middleware: requireAuth (Keep as is) ---
 const requireAuth = (req, res, next) => {
