@@ -114,4 +114,4 @@ Contributions are welcome! Please fork the repository and submit a pull request.
 
 ## License
 
-[MIT](LICENSE) // Or choose another license if preferred
+[MIT](LICENSE)
