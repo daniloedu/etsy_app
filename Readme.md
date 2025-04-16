@@ -88,7 +88,7 @@ A simple Node.js application using Express and Handlebars to interact with the E
 
 ## Deployment
 
-This application can be deployed to various platforms. Key considerations:
+This application can be deployed to various platforms (Right now is configured to work on Reder.com). Key considerations:
 
 1.  **Redirect URI:** Update your Etsy App configuration with the production Redirect URI (e.g., `https:/localhost:3003/oauth/redirect`).
 2.  **Environment Variables:** Set `ETSY_CLIENT_ID`, `SESSION_SECRET`, `PORT`, and `NODE_ENV=production` on your hosting platform.
